@@ -30,6 +30,21 @@ interface ContentFile {
   size: number;
 }
 
+interface ContentItem {
+  name: string;
+  path: string;
+  type: "file" | "dir" | "submodule" | "symlink";
+  size: number;
+  sha: string;
+}
+
+interface TreeEntry {
+  path: string;
+  type: "blob" | "tree" | "commit";
+  size?: number;
+  sha: string;
+}
+
 export async function get(env: Env, args: Record<string, unknown>): Promise<unknown> {
   const owner = req(args, "owner");
   const repo = req(args, "repo");
@@ -80,4 +95,59 @@ export async function createOrUpdate(env: Env, args: Record<string, unknown>): P
     method: "PUT",
     body: JSON.stringify(body),
   });
+}
+
+export async function list(env: Env, args: Record<string, unknown>): Promise<unknown> {
+  const owner = req(args, "owner");
+  const repo = req(args, "repo");
+  const path = typeof args.path === "string" ? args.path : "";
+  const params = new URLSearchParams();
+  if (typeof args.ref === "string") params.set("ref", args.ref);
+  const qs = params.toString() ? `?${params}` : "";
+  const result = await gh<ContentItem[] | ContentFile>(
+    env,
+    `/repos/${owner}/${repo}/contents/${encodeURI(path)}${qs}`,
+  );
+  if (!Array.isArray(result)) {
+    throw new Error(`path is not a directory: ${path || "(root)"} (type=${result.type})`);
+  }
+  return result.map((e) => ({
+    name: e.name,
+    path: e.path,
+    type: e.type,
+    size: e.size,
+    sha: e.sha,
+  }));
+}
+
+export async function tree(env: Env, args: Record<string, unknown>): Promise<unknown> {
+  const owner = req(args, "owner");
+  const repo = req(args, "repo");
+  let ref = typeof args.ref === "string" && args.ref ? args.ref : "";
+  if (!ref) {
+    const r = await gh<{ default_branch: string }>(env, `/repos/${owner}/${repo}`);
+    ref = r.default_branch;
+  }
+
+  const result = await gh<{ tree: TreeEntry[]; truncated: boolean }>(
+    env,
+    `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+  );
+
+  let entries = result.tree;
+  if (typeof args.path === "string" && args.path) {
+    const prefix = args.path.replace(/^\/+|\/+$/g, "");
+    entries = entries.filter((e) => e.path === prefix || e.path.startsWith(prefix + "/"));
+  }
+
+  return {
+    ref,
+    truncated: result.truncated,
+    entries: entries.map((e) => ({
+      path: e.path,
+      type: e.type === "blob" ? "file" : e.type === "tree" ? "dir" : e.type,
+      size: e.size,
+      sha: e.sha,
+    })),
+  };
 }

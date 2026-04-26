@@ -86,6 +86,34 @@ export const tools: ToolDef[] = [
     },
   },
   {
+    name: "list_directory",
+    description: "List entries in a directory of a repository (one level). Pass empty path for the repo root.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo: { type: "string" },
+        path: { type: "string", description: "Directory path. Empty string or omitted for repo root." },
+        ref: { type: "string", description: "Branch, tag, or commit SHA. Defaults to the repo's default branch." },
+      },
+      required: ["owner", "repo"],
+    },
+  },
+  {
+    name: "list_tree",
+    description: "Recursively list every file and directory in a repository at a given ref. Optionally filter by path prefix.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string" },
+        repo: { type: "string" },
+        ref: { type: "string", description: "Branch, tag, or commit SHA. Defaults to the repo's default branch." },
+        path: { type: "string", description: "Optional path prefix to filter by, e.g. 'docs'." },
+      },
+      required: ["owner", "repo"],
+    },
+  },
+  {
     name: "create_or_update_file",
     description: "Create or update a file in a repository. SHA is fetched automatically when updating.",
     inputSchema: {
@@ -122,6 +150,8 @@ export const handlers: Record<string, Handler> = {
   create_issue: issues.create,
   update_issue: issues.update,
   get_file: files.get,
+  list_directory: files.list,
+  list_tree: files.tree,
   create_or_update_file: files.createOrUpdate,
   list_repos: repos.list,
 };
