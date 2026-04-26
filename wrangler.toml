@@ -1,0 +1,7 @@
+name = "github-mcp-worker"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+# Secrets (set with `wrangler secret put <NAME>`):
+#   GITHUB_PAT    fine-grained PAT with Issues RW, Contents RW, Metadata R
+#   WORKER_TOKEN  shared bearer secret presented by Claude.ai
