@@ -2,6 +2,7 @@ import type { Env } from "./github.js";
 import * as issues from "./handlers/issues.js";
 import * as files from "./handlers/files.js";
 import * as repos from "./handlers/repos.js";
+import * as projects from "./handlers/projects.js";
 
 export interface ToolDef {
   name: string;
@@ -112,6 +113,67 @@ export const tools: ToolDef[] = [
       },
     },
   },
+  {
+    name: "list_projects",
+    description: "List GitHub Projects v2 for a user or organisation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "GitHub username or organisation login." },
+      },
+      required: ["owner"],
+    },
+  },
+  {
+    name: "list_project_items",
+    description: "List items in a GitHub Project v2 board, optionally filtered by status column.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "The node ID of the project (e.g. PVT_...)." },
+        status: { type: "string", description: "Filter to items with this Status value (e.g. 'Backlog', 'In Progress')." },
+        per_page: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+      },
+      required: ["project_id"],
+    },
+  },
+  {
+    name: "get_project_item",
+    description: "Get full details for a single item in a GitHub Project v2.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        item_id: { type: "string", description: "The node ID of the project item (e.g. PVTI_...)." },
+      },
+      required: ["item_id"],
+    },
+  },
+  {
+    name: "update_project_item_status",
+    description: "Move a project item to a different status column (e.g. Backlog → In Progress).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "The node ID of the project." },
+        item_id: { type: "string", description: "The node ID of the project item." },
+        status: { type: "string", description: "The target status column name (e.g. 'In Progress', 'Done')." },
+      },
+      required: ["project_id", "item_id", "status"],
+    },
+  },
+  {
+    name: "add_issue_to_project",
+    description: "Add an issue to a GitHub Project v2 board, optionally setting its initial status column.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "The node ID of the project." },
+        issue_url: { type: "string", description: "The GitHub issue URL (https://github.com/owner/repo/issues/123) or issue node ID." },
+        status: { type: "string", description: "Optional initial status column (e.g. 'Backlog')." },
+      },
+      required: ["project_id", "issue_url"],
+    },
+  },
 ];
 
 type Handler = (env: Env, args: Record<string, unknown>) => Promise<unknown>;
@@ -124,4 +186,9 @@ export const handlers: Record<string, Handler> = {
   get_file: files.get,
   create_or_update_file: files.createOrUpdate,
   list_repos: repos.list,
+  list_projects: projects.listProjects,
+  list_project_items: projects.listProjectItems,
+  get_project_item: projects.getProjectItem,
+  update_project_item_status: projects.updateProjectItemStatus,
+  add_issue_to_project: projects.addIssueToProject,
 };
