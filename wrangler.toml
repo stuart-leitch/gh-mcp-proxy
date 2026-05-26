@@ -3,5 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
 # Secrets (set with `wrangler secret put <NAME>`):
-#   GITHUB_PAT    fine-grained PAT with Issues RW, Contents RW, Metadata R
-#   WORKER_TOKEN  shared bearer secret presented by Claude.ai
+#   GITHUB_PAT            fine-grained PAT with Issues RW, Contents RW, Metadata R
+#   WORKER_TOKEN          master password shown on the /oauth/authorize page
+#   TOKEN_SIGNING_SECRET  (recommended) separate HMAC signing key for issued tokens;
+#                         set this so that rotating WORKER_TOKEN does not invalidate
+#                         existing access/refresh tokens.
