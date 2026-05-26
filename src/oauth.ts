@@ -15,8 +15,14 @@ interface AccessClaims {
   exp: number;
 }
 
+interface RefreshClaims {
+  kind: "refresh";
+  exp: number;
+}
+
 const CODE_TTL_SECONDS = 300;
-const ACCESS_TTL_SECONDS = 86400;
+const ACCESS_TTL_SECONDS = 3600;         // 1 hour
+const REFRESH_TTL_SECONDS = 30 * 86400; // 30 days
 
 function b64url(bytes: ArrayBuffer | Uint8Array): string {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -35,16 +41,20 @@ function b64urlDecode(s: string): Uint8Array {
 }
 
 async function hmacKey(env: Env): Promise<CryptoKey> {
+  // Use TOKEN_SIGNING_SECRET when set so rotating WORKER_TOKEN doesn't
+  // invalidate existing tokens. Falls back to WORKER_TOKEN for deployments
+  // that haven't yet set the dedicated secret.
+  const secret = env.TOKEN_SIGNING_SECRET ?? env.WORKER_TOKEN;
   return crypto.subtle.importKey(
     "raw",
-    enc.encode(env.WORKER_TOKEN),
+    enc.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"],
   );
 }
 
-async function sign(claims: CodeClaims | AccessClaims, env: Env): Promise<string> {
+async function sign(claims: CodeClaims | AccessClaims | RefreshClaims, env: Env): Promise<string> {
   const key = await hmacKey(env);
   const payload = b64url(enc.encode(JSON.stringify(claims)));
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
@@ -75,7 +85,8 @@ async function verifyStamp<T extends { kind: string; exp: number }>(
     return null;
   }
   if (claims.kind !== expectedKind) return null;
-  if (claims.exp < Math.floor(Date.now() / 1000)) return null;
+  // Allow 60 s of clock skew across Cloudflare's distributed edge.
+  if (claims.exp + 60 < Math.floor(Date.now() / 1000)) return null;
   return claims;
 }
 
@@ -108,7 +119,7 @@ export function authorizationServerMetadata(origin: string): unknown {
     token_endpoint: `${origin}/oauth/token`,
     registration_endpoint: `${origin}/oauth/register`,
     response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
   };
@@ -195,13 +206,23 @@ export async function handleToken(req: Request, env: Env): Promise<Response> {
   }
 
   const grant_type = params.get("grant_type") ?? "";
+
+  // --- refresh_token grant ---
+  if (grant_type === "refresh_token") {
+    const refresh_token = params.get("refresh_token") ?? "";
+    const refreshClaims = await verifyStamp<RefreshClaims>(refresh_token, env, "refresh");
+    if (!refreshClaims) return Response.json({ error: "invalid_grant" }, { status: 400 });
+    return issueTokenPair(env);
+  }
+
+  // --- authorization_code grant ---
+  if (grant_type !== "authorization_code") {
+    return Response.json({ error: "unsupported_grant_type" }, { status: 400 });
+  }
   const code = params.get("code") ?? "";
   const redirect_uri = params.get("redirect_uri") ?? "";
   const code_verifier = params.get("code_verifier") ?? "";
 
-  if (grant_type !== "authorization_code") {
-    return Response.json({ error: "unsupported_grant_type" }, { status: 400 });
-  }
   const claims = await verifyStamp<CodeClaims>(code, env, "code");
   if (!claims) return Response.json({ error: "invalid_grant" }, { status: 400 });
   if (claims.redirect_uri !== redirect_uri) {
@@ -212,14 +233,18 @@ export async function handleToken(req: Request, env: Env): Promise<Response> {
     return Response.json({ error: "invalid_grant", error_description: "PKCE verification failed" }, { status: 400 });
   }
 
-  const access_token = await sign(
-    { kind: "access", exp: Math.floor(Date.now() / 1000) + ACCESS_TTL_SECONDS },
-    env,
-  );
+  return issueTokenPair(env);
+}
+
+async function issueTokenPair(env: Env): Promise<Response> {
+  const now = Math.floor(Date.now() / 1000);
+  const access_token = await sign({ kind: "access", exp: now + ACCESS_TTL_SECONDS }, env);
+  const refresh_token = await sign({ kind: "refresh", exp: now + REFRESH_TTL_SECONDS }, env);
   return Response.json({
     access_token,
     token_type: "Bearer",
     expires_in: ACCESS_TTL_SECONDS,
+    refresh_token,
   });
 }
 
@@ -231,7 +256,7 @@ export async function handleRegister(req: Request): Promise<Response> {
       client_id_issued_at: Math.floor(Date.now() / 1000),
       redirect_uris: Array.isArray(body.redirect_uris) ? body.redirect_uris : [],
       token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code"],
+      grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
     },
     { status: 201 },
@@ -239,7 +264,6 @@ export async function handleRegister(req: Request): Promise<Response> {
 }
 
 export async function isValidAccess(token: string, env: Env): Promise<boolean> {
-  if (token === env.WORKER_TOKEN) return true;
   const claims = await verifyStamp<AccessClaims>(token, env, "access");
   return claims !== null;
 }

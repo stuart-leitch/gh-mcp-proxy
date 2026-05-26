@@ -1,6 +1,7 @@
 export interface Env {
   GITHUB_PAT: string;
   WORKER_TOKEN: string;
+  TOKEN_SIGNING_SECRET?: string;
 }
 
 export class GitHubError extends Error {
